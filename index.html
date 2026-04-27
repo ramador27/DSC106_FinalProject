@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Cancer Incidence & Environmental Quality in U.S. Counties</title>
+
+  <!-- D3 + TopoJSON -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson@3"></script>
+
+  <style>
+    /* ========================
+       Global Styles & Narrative
+       ======================== */
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 1rem;
+      background: #f9f9f9;
+      line-height: 1.6;
+      color: #333;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin-top: 1.5rem;
+      margin-bottom: 0.5rem;
+      color: #222;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 2rem;
+    }
+
+    h2 {
+      font-size: 1.5rem;
+      border-bottom: 1px solid #ccc;
+      padding-bottom: 0.25rem;
+      text-align: center;
+    }
+
+    p {
+      max-width: 800px;
+      margin: 0 auto 1rem auto;
+      text-align: center;
+    }
+
+    section {
+      max-width: 1000px;
+      margin: 2rem auto;
+      padding: 1rem;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      text-align: center;
+    }
+
+    /* ========================
+       Dashboard Controls
+       ======================== */
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .controls input,
+    .controls button,
+    .controls select {
+      margin: 0 auto;
+    }
+
+    .controls input {
+      width: 200px;
+      padding: 4px;
+      font-size: 0.9rem;
+    }
+
+    .controls button {
+      padding: 4px 8px;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+
+    .controls select {
+      font-size: 1rem;
+      padding: 0.25rem;
+    }
+
+    /* Visually group search bar and Go button */
+    .search-group {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .search-group input[type="text"] {
+      width: 250px;
+      padding: 6px 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+      margin-left: 30px;
+    }
+
+    .control-pair {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    /* Suggestions dropdown */
+    .suggestions-container {
+      position: relative;
+    }
+
+    .suggestions-list {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      width: 100%;
+      background: #fff;
+      border: 1px solid #ccc;
+      max-height: 150px;
+      overflow-y: auto;
+      z-index: 1000;
+      display: none;
+    }
+
+    .suggestion-item {
+      padding: 4px 8px;
+      cursor: pointer;
+    }
+
+    .suggestion-item:hover {
+      background-color: #eee;
+    }
+
+    /* ========================
+       Map & Tooltip Styles
+       ======================== */
+    .map-container {
+      width: 960px;
+      margin: 0 auto 2rem auto;
+      position: relative;
+      /* must be relative so that tooltips can absolutely position within */
+      background: #f0f0f0;
+      border: 2px solid black;
+    }
+
+    svg {
+      display: block;
+    }
+
+    canvas {
+      background: transparent;
+    }
+
+    .legend-group {
+      font-size: 12px;
+      pointer-events: none;
+    }
+
+    .tooltip {
+      position: absolute;
+      z-index: 1000;
+      padding: 6px 8px;
+      background: rgba(0, 0, 0, 0.8);
+      color: #fff;
+      border-radius: 4px;
+      pointer-events: none;
+      font-size: 0.9rem;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    /* ========================
+       Annotation Outlines
+       ======================== */
+    /* 
+       All five “annotation” groups (cancer, air, industry, income, water)
+       append a <g> with class="annotation-group-…". Each path inside
+       those groups should be drawn on top, with no fill, black stroke, 2px, 
+       and let mouse events pass through to underlying counties.
+    */
+    .annotation-group-cancer path,
+    .annotation-group-air path,
+    .annotation-group-industry path,
+    .annotation-group-income path,
+    .annotation-group-water path {
+      fill: none;
+      stroke: black;
+      stroke-width: 2px;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Cancer Incidence & Environmental Quality in U.S. Counties</h1>
+
+  <!-- ================================================================
+       1. Introduction Paragraph
+       ================================================================ -->
+  <section id="introduction">
+    <h2>Introduction</h2>
+    <h4>
+      Project Members: Ricardo M. Amador, Arthur Brown, Eli Nalebuff, and Borngreat Omoma-Edosa
+    </h4>
+    <p>
+      Cancer remains one of the most pressing public-health challenges in the United States. Although genetics plays a
+      role in many individual cases, environmental pollutants are widely believed to contribute to elevated cancer
+      rates.
+    </p>
+    <p>
+      <strong>Our project asks:</strong> <em>Where in America do cancer rates run unusually high, and does exposure to
+        particular pollutants seem to explain some of those patterns?</em>
+    </p>
+    <p>
+      One of our group members moved away from their home county due to concerns about fracking and industrial
+      pollution—and feared these factors might increase cancer risk. This personal experience motivated us to
+      investigate whether a broader pattern exists between environmental pollution and cancer incidence across the
+      United States.
+      This project also draws on the DuPont C-8 lawsuit, where contaminated water was linked to increased cancer rates
+      in communities that resided within a close range of the plant. Geagraphic vissualizations were a key part of the
+      of discovering and aruging the case.
+      You can view our video presentation <a href="https://youtu.be/Jxun04jfH04" target="_blank">here</a>.
+    </p>
+  </section>
+
+  <!-- ================================================================
+       2. Cancer‐Only View
+       ================================================================ -->
+  <section id="cancer-only">
+    <h2>Cancer‐Only View</h2>
+    <p>
+      Below is the county map colored by age‐adjusted cancer incidence averaged over a five year period from 2018 to
+      2022. Each county is placed in one of five quantiles based on cancer incedents per 100,000 people. You are able to
+      hover over
+      individual counties to observe their cancer rate. Use the
+      dropdown to
+      switch among cancer
+      types. Pollutant layers are disabled here so you can focus solely on the spatial distribution of cancer rates.
+    </p>
+
+    <p>
+      Note the annotated areas on the map: These areas ares characterized by high concentrations of cancer incedents. We
+      have laid boxes over these areas on the following maps to help the viewer see different patterns.
+    </p>
+    <div class="controls">
+      <!-- SEARCH BOX + GO BUTTON grouped -->
+      <div class="search-group">
+        <div class="suggestions-container">
+          <input type="text" id="county-search" placeholder="Type county, e.g. Union County, Florida" />
+          <div id="suggestions" class="suggestions-list"></div>
+        </div>
+        <button id="search-button">Go</button>
+      </div>
+
+      <!-- CANCER DROPDOWN -->
+      <div class="control-pair">
+        <label for="cancer-select">Cancer Type:</label>
+        <select id="cancer-select">
+          <option value="all" selected>All Cancer Sites</option>
+          <option value="breast">Breast Incidence</option>
+          <option value="leukemia">Leukemia Incidence</option>
+          <option value="lymphoma">Lymphoma Incidence</option>
+          <option value="thyroid">Thyroid Incidence</option>
+        </select>
+      </div>
+
+      <!-- RESET BUTTON -->
+      <div style="margin-right: 15px;">
+        <button id="reset-button">Reset</button>
+      </div>
+    </div>
+    <div id="map-cancer" class="map-container">
+      <svg id="cancer-svg" width="960" height="600"></svg>
+      <div id="cancer-tooltip" class="tooltip"></div>
+
+      <!-- Cancer Legend -->
+      <div id="legend-cancer" style="position: absolute; top: 10px; right: 10px;"></div>
+    </div>
+  </section>
+
+  <!-- ================================================================
+       5.1. Water Pollution‐Only View
+       ================================================================ -->
+  <section id="water-only">
+    <h2>Water Pollution‐Only View</h2>
+
+
+    <p>
+      We also wondered if water quality might correlate with cancer rates, so we gathered 2025 county‐level water
+      scores. On the map, the West Coast region appears to have cleaner water, which aligns with its lower
+      cancer incidence from the previous section. Conversely, some of the annotated regions in the middle of the country
+      show dirtier water and
+      correspondingly higher cancer rates.
+    </p>
+    <div class="controls">
+      <!-- SEARCH BOX + GO BUTTON grouped -->
+      <div class="search-group">
+        <div class="suggestions-container">
+          <input type="text" id="county-search-water" placeholder="Type county, e.g. Union County, Florida" />
+          <div id="suggestions-water" class="suggestions-list"></div>
+        </div>
+        <button id="search-button-water">Go</button>
+      </div>
+
+      <!-- RESET BUTTON -->
+      <div style="margin-right: 15px;">
+        <button id="reset-button-water">Reset</button>
+      </div>
+    </div>
+    <div id="map-water" class="map-container">
+      <svg id="water-svg" width="960" height="600"></svg>
+      <div id="water-tooltip" class="tooltip"></div>
+
+      <!-- Water Quality Legend -->
+      <div id="legend-water" style="position: absolute; top: 10px; right: 10px;"></div>
+    </div>
+  </section>
+
+  <!-- ================================================================
+       3. Air Pollution‐Only View
+       ================================================================ -->
+  <section id="air-only">
+    <h2>Air Pollution‐Only View</h2>
+    <p>
+      Next, we look at fine particulate matter (PM₂.₅) across counties. This data was collected by the EPA and averaged
+      over a two year period from 2017 to 2019. Cancer incidence and other layers are disabled
+      so you can focus just on the PM₂.₅ distribution.
+    </p>
+
+    <p>
+      Next, we considered air pollution. However, the relationship is not straightforward: the California region shows
+      higher PM₂.₅ levels despite low cancer rates; Minnesota has relatively clean air but high cancer incidence; Idaho
+      and Wyoming appear to have clean air and low cancer rates; and the Kentucky/Mississippi region has more polluted
+      air and high cancer rates. Thus, air pollution alone does not fully explain cancer patterns.
+    </p>
+    <div class="controls">
+      <!-- SEARCH BOX + GO BUTTON grouped -->
+      <div class="search-group">
+        <div class="suggestions-container">
+          <input type="text" id="county-search-air" placeholder="Type county, e.g. Union County, Florida" />
+          <div id="suggestions-air" class="suggestions-list"></div>
+        </div>
+        <button id="search-button-air">Go</button>
+      </div>
+
+      <!-- RESET BUTTON -->
+      <div style="margin-right: 15px;">
+        <button id="reset-button-air">Reset</button>
+      </div>
+    </div>
+    <div id="map-air" class="map-container">
+      <svg id="air-svg" width="960" height="600"></svg>
+      <div id="air-tooltip" class="tooltip"></div>
+
+      <!-- PM₂.₅ Legend -->
+      <div id="legend-pm25" style="position: absolute; top: 10px; right: 10px;"></div>
+    </div>
+  </section>
+
+  <!-- ================================================================
+       4. Industrial‐Only View
+       ================================================================ -->
+  <section id="industry-only">
+    <h2>Industrial‐Only View</h2>
+    <p>
+      Now we overlay large industrial facilities (e.g., power plants, refineries) on top of the cancer map. The
+      industrial data was collected in 2023. Air
+      pollution and income layers remain disabled. Hover over each dot to see its facility name and On‐Site Release
+      Total.
+    </p>
+
+    <p>
+      We expected industrial emissions might align with cancer hotspots. Indeed, similar to water quality, the West
+      Coast area has fewer large industrial facilities and lower cancer rates, whereas the East Coast
+      annotated area has many polluting facilities alongside high cancer incidence—suggesting a possible link. Note that
+      highly concentrated areas of high cancer incidence have a correspondingly high densities
+      of chemical and plastic facilities.
+    </p>
+    <div class="controls">
+      <!-- SEARCH BOX + GO BUTTON grouped -->
+      <div class="search-group">
+        <div class="suggestions-container">
+          <input type="text" id="county-search-industry" placeholder="Type county, e.g. Union County, Florida" />
+          <div id="suggestions-industry" class="suggestions-list"></div>
+        </div>
+        <button id="search-button-industry">Go</button>
+      </div>
+
+      <!-- INDUSTRY SECTOR DROPDOWN -->
+      <div class="control-pair">
+        <label for="sector-select-industry">Industry Sector:</label>
+        <select id="sector-select-industry">
+          <option value="all" selected>All Sectors</option>
+        </select>
+      </div>
+
+      <!-- RESET BUTTON -->
+      <div style="margin-right: 15px;">
+        <button id="reset-button-industry">Reset</button>
+      </div>
+    </div>
+    <div id="map-industry" class="map-container">
+      <svg id="industry-svg" width="960" height="600"></svg>
+      <div id="industry-tooltip" class="tooltip"></div>
+
+      <!-- Cancer Legend (same as Cancer‐Only) -->
+      <div id="legend-cancer-industry" style="position: absolute; top: 10px; right: 10px;"></div>
+
+      <!-- Industry Legend (categorical, now bottom-right) -->
+      <div id="industry-legend" style="
+          position: absolute;
+          bottom: 10px;
+          right: 10px;
+          background: rgba(255,255,255,0.8);
+          padding: 6px;
+          border: 1px solid #ccc;
+          border-radius: 4px;
+          font-size: 12px;
+        ">
+        <strong>Industry Sector Legend</strong>
+        <div id="industry-legend-items"></div>
+      </div>
+    </div>
+    <div style="text-align: center; margin-top: 1rem;">
+      <!-- OUTPUT THRESHOLD SLIDER -->
+      <label for="emission-threshold">Min Emissions:</label>
+      <input type="range" id="emission-threshold" min="0" max="500000" step="10000" value="10000">
+      <span id="emission-value">10000</span>
+    </div>
+  </section>
+
+  <!-- ================================================================
+       5. Income‐Only View
+       ================================================================ -->
+  <section id="income-only">
+    <h2>Income‐Only View</h2>
+    <p>
+      Finally, we look at county‐level median income. Cancer, air pollution, and industry layers are disabled here so
+      you can see how income alone is distributed.
+    </p>
+
+    <p>
+      We also explored whether socioeconomic factors play a role, so we included median household income. The
+      Idaho/California region shows higher incomes and lower cancer rates. Mississippi and Kentucky have lower incomes
+      and high cancer incidence. However, Minnesota has moderate to high income but still experiences high cancer rates,
+      indicating income alone cannot fully explain the patterns.
+    </p>
+    <div class="controls">
+      <!-- SEARCH BOX + GO BUTTON grouped -->
+      <div class="search-group">
+        <div class="suggestions-container">
+          <input type="text" id="county-search-income" placeholder="Type county, e.g. Union County, Florida" />
+          <div id="suggestions-income" class="suggestions-list"></div>
+        </div>
+        <button id="search-button-income">Go</button>
+      </div>
+
+      <!-- RESET BUTTON -->
+      <div style="margin-right: 15px;">
+        <button id="reset-button-income">Reset</button>
+      </div>
+    </div>
+    <div id="map-income" class="map-container">
+      <svg id="income-svg" width="960" height="600"></svg>
+      <div id="income-tooltip" class="tooltip"></div>
+
+      <!-- Income Legend -->
+      <div id="legend-income" style="position: absolute; top: 10px; right: 10px;"></div>
+    </div>
+  </section>
+
+  <!-- ================================================================
+       6. Conclusion Paragraph
+       ================================================================ -->
+  <section id="conclusion">
+    <h2>Conclusion</h2>
+    <p>
+      We recognize that cancer risk arises from a complex mix of factors, including genetics, lifestyle, and family
+      history. Our goal was to explore whether visual patterns emerge when comparing cancer incidence with environmental
+      conditions across the U.S. By layering data on water quality, air pollution, industrial facility locations, and
+      income. We observed that proximity to industrial plants showed the strongest spatial correlation with higher
+      cancer rates. While drinking water contamination and poor air quality also aligned with elevated cancer in some
+      regions, these measures do not capture which specific pollutants are most influential. Higher-income areas
+      generally showed lower cancer rates, suggesting potential disparities in exposure, resources, or access to care.
+      While these visual relationships do not imply causation, the patterns suggest that environmental
+      pollution—especially from industrial activity—may play a meaningful role in cancer risk and warrant greater public
+      awareness and further investigation.</p>
+    <p>
+
+      It is important to note that our analysis is purely observational and does not establish causation, however there
+      are several documented incedents of industrial pollution leading to increased cancer rates in nearby communities.
+      Overall, our findings should convince experts and regular people to take a closer look at industrial pollution as
+      a potential contributor to cancer risk and to continually remain attentive to industrial activity.
+
+    </p>
+  </section>
+
+  <!-- ================================================================
+       7. Full Dashboard (All Controls Enabled)
+       ================================================================ -->
+  <section id="full-dashboard">
+    <h2 style="text-align: center; margin-bottom: 0.5rem;">
+      Cancer & Pollution Dashboard (Full Interactive View)
+    </h2>
+    <p style="text-align: center; max-width: 800px; margin: 0 auto 2rem;">
+      Now that you’ve seen each layer one by one, here’s the full interactive dashboard. Use the dropdowns to turn on or
+      off any combination of cancer subtype, air pollution (PM₂.₅), industry facilities, and income. Zoom to specific
+      counties with the search bar, or reset to the national view at any time.
+    </p>
+
+    <div class="controls">
+      <!-- SEARCH BOX + GO BUTTON grouped -->
+      <div class="search-group">
+        <div class="suggestions-container">
+          <input type="text" id="county-search-2" placeholder="Type county, e.g. Union County, Florida" />
+          <div id="suggestions-2" class="suggestions-list"></div>
+        </div>
+        <button id="search-button-2">Go</button>
+      </div>
+
+      <!-- CANCER DROPDOWN -->
+      <div class="control-pair">
+        <label for="cancer-select-2">Cancer Type:</label>
+        <select id="cancer-select-2">
+          <option value="all" selected>All Cancer Sites</option>
+          <option value="breast">Breast Incidence</option>
+          <option value="leukemia">Leukemia Incidence</option>
+          <option value="lymphoma">Lymphoma Incidence</option>
+          <option value="thyroid">Thyroid Incidence</option>
+        </select>
+      </div>
+
+      <!-- VIEW COMPARISON MAP DROPDOWN -->
+      <label for="pollution-select-2">View Comparison Map:</label>
+      <select id="pollution-select-2">
+        <option value="none" selected>None</option>
+        <option value="pm25">Air Pollution (PM₂.₅)</option>
+        <option value="income">Income</option>
+        <option value="water">Water Quality</option>
+      </select>
+
+      <!-- INDUSTRY FACILITIES MULTI-SELECT -->
+      <div class="control-pair">
+        <label for="sector-select-2">Industry Facilities:</label>
+        <select id="sector-select-2" multiple size="5" style="min-width: 150px;">
+          <!-- options will be injected by JS -->
+        </select>
+      </div>
+      <button id="sector-all-2" type="button" style="margin-left: 8px;">All</button>
+      <button id="sector-none-2" type="button">None</button>
+
+      <!-- RESET BUTTON -->
+      <button id="reset-button-2">Reset</button>
+    </div>
+
+    <!-- 7.1) Cancer container sits on top -->
+    <div id="cancer-container-2" class="map-container">
+      <svg id="cancer-svg-2" width="960" height="600"></svg>
+      <svg id="facility-svg-2" width="960" height="600"
+        style="position: absolute; top: 0; left: 0; pointer-events: none;"></svg>
+      <div id="cancer-tooltip-2" class="tooltip"></div>
+
+      <!-- Cancer Legend (Full Dashboard) -->
+      <div id="legend-cancer-full" style="position: absolute; top: 10px; right: 10px;"></div>
+      <!-- Industry Legend (Full Dashboard, now bottom-right; hidden until “Industry” selected) -->
+      <div id="industry-legend-full" style="
+          position: absolute;
+          bottom: 10px;
+          right: 10px;
+          background: rgba(249, 246, 246, 0.8);
+          padding: 6px;
+          border: 1px solid #ccc;
+          border-radius: 4px;
+          font-size: 12px;
+          display: none;
+        ">
+        <strong>Industry Sector Legend</strong>
+        <div id="industry-legend-items-full"></div>
+      </div>
+      <!-- Static Info Box (Bottom-Left) -->
+      <div id="info-dashboard" class="static-info-box" style="
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        background: #fff;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 12px;
+      ">
+        Hover over a county
+      </div>
+    </div>
+    <div style="text-align: center; margin-top: 1rem;">
+      <!-- OUTPUT THRESHOLD SLIDER (Full Dashboard) -->
+      <label for="emission-threshold-2">Min Emissions:</label>
+      <input type="range" id="emission-threshold-2" min="0" max="500000" step="10000" value="10000">
+      <span id="emission-value-2">10000</span>
+    </div>
+
+    <!-- 7.2) Pollution container sits below; hidden initially -->
+    <div id="pollution-container-2" class="map-container" style="display: none;">
+      <svg id="pollution-svg-2" width="960" height="600"></svg>
+      <div id="pollution-tooltip-2" class="tooltip"></div>
+
+      <!-- PM₂.₅ Legend (Full Dashboard) -->
+      <div id="legend-pm25-full" style="position: absolute; top: 10px; right: 10px;"></div>
+      <!-- Income Legend (Full Dashboard) -->
+      <div id="legend-income-full" style="position: absolute; top: 50px; right: 10px;"></div>
+      <!-- Water Quality Legend (Full Dashboard) -->
+      <div class="legend-container" id="legend-water-full" style="position: absolute; top: 10px; right: 10px;">
+        <svg width="300" height="50">
+          <defs>
+            <linearGradient id="legend-water-gradient-full" x1="0%" y1="0%" x2="100%" y2="0%"></linearGradient>
+          </defs>
+          <rect x="0" y="20" width="300" height="12" fill="url(#legend-water-gradient-full)"></rect>
+          <g id="water-legend-axis-full" transform="translate(0, 35)"></g>
+          <text id="water-legend-title-full" x="0" y="12" font-size="12px" font-weight="bold">Drinking Water
+            Quality</text>
+        </svg>
+      </div>
+      <!-- Static Info Box for Comparison Maps -->
+      <div id="info-dashboard" class="static-info-box" style="
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        background: #fff;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 12px;
+      ">
+        Hover over a county
+      </div>
+    </div>
+  </section>
+
+  <!-- Load the JavaScript logic last -->
+  <script src="main_map.js"></script>
+</body>
+
+</html>
